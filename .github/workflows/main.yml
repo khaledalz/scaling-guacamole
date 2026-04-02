@@ -26,8 +26,8 @@ jobs:
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
             dir=in action=allow protocol=TCP localport=3389 remoteip=any
           
-          # Also disable firewall on all profiles temporarily for testing
-          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled $false
+          # Disable firewall on all profiles temporarily for testing
+          netsh advfirewall set allprofiles state off
 
           # Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
