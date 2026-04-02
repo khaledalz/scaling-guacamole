@@ -60,7 +60,7 @@ jobs:
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
           
           # Use static IP address
-          $tsIP = "192.168.1.5523"
+          $tsIP = "100.126.228.124"
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
       
       - name: Verify RDP Accessibility
