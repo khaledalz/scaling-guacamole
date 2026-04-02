@@ -20,14 +20,25 @@ jobs:
                              -Name "SecurityLayer" -Value 0 -Force
 
           # Remove any existing rule with the same name to avoid duplication
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
+          netsh advfirewall firewall delete rule name="RDP-Tailscale" 2>$null
           
-          # For testing, allow any incoming connection on port 3389
+          # Allow any incoming connection on port 3389 from any interface
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
-            dir=in action=allow protocol=TCP localport=3389
+            dir=in action=allow protocol=TCP localport=3389 remoteip=any
+          
+          # Also disable firewall on all profiles temporarily for testing
+          Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled $false
 
-          # (Optional) Restart the Remote Desktop service to ensure changes take effect
+          # Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
+          
+          # Verify RDP is listening
+          $rdpListening = Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
+          if (-not $rdpListening) {
+              Write-Warning "RDP not listening on port 3389 yet, waiting 10 seconds..."
+              Start-Sleep -Seconds 10
+          }
+          Write-Host "RDP Service configured and listening on port 3389"
 
       - name: Create RDP User with Static Password
         run: |
