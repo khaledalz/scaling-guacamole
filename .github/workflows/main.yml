@@ -67,22 +67,66 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          # Bring up Tailscale with the provided auth key and set a unique hostname
+          Write-Host "Bringing up Tailscale..."
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
           
-          # Use static IP address
-          $tsIP = "100.126.228.124"
+          # Wait for Tailscale to fully initialize
+          Write-Host "Waiting for Tailscale interface to be ready..."
+          Start-Sleep -Seconds 5
+          
+          # Get the actual Tailscale IP assigned
+          $tsIP = $null
+          $retries = 0
+          while (-not $tsIP -and $retries -lt 20) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 2>$null
+              if ($tsIP) { break }
+              Write-Host "Waiting for IP assignment... (attempt $($retries+1)/20)"
+              Start-Sleep -Seconds 2
+              $retries++
+          }
+          
+          if (-not $tsIP) {
+              Write-Error "Failed to get Tailscale IP address"
+              exit 1
+          }
+          
+          Write-Host "Tailscale IP assigned: $tsIP"
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          
+          # Wait a bit more for the network interface to fully settle
+          Start-Sleep -Seconds 3
       
       - name: Verify RDP Accessibility
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
           
-          # Test connectivity using Test-NetConnection against the Tailscale IP on port 3389
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+          # First, verify RDP is listening locally
+          Write-Host "Checking if RDP is listening locally..."
+          $localRDP = Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
+          if (-not $localRDP) {
+              Write-Host "WARNING: RDP not listening locally. Checking process status..."
+              Get-Service -Name TermService
+              & netstat -ano | findstr /C:":3389"
+          } else {
+              Write-Host "RDP is listening locally on port 3389"
+          }
+          
+          # Test local RDP connection first (localhost)
+          Write-Host "Testing RDP on localhost..."
+          $localTest = Test-NetConnection -ComputerName localhost -Port 3389 -ErrorAction SilentlyContinue
+          Write-Host "Local test result: $($localTest.TcpTestSucceeded)"
+          
+          # Now test via Tailscale IP
+          Write-Host "Testing RDP via Tailscale IP ($env:TAILSCALE_IP)..."
+          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389 -ErrorAction SilentlyContinue
           if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
-              exit 1
+              Write-Host "WARNING: TCP connection via Tailscale failed. Waiting 5 seconds and retrying..."
+              Start-Sleep -Seconds 5
+              $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389 -ErrorAction SilentlyContinue
+              if (-not $testResult.TcpTestSucceeded) {
+                  Write-Error "TCP connection to RDP port 3389 failed after retry"
+                  exit 1
+              }
           }
           Write-Host "TCP connectivity successful!"
 
